@@ -1,29 +1,46 @@
 from rtlsdr import RtlSdr
 import numpy as np
 import serial
+import serial.tools.list_ports
 import time
-import random
 
 NODE_ID = 2
 SLOT_LENGTH = 0.5
 CYCLE_LENGTH = 4 * SLOT_LENGTH
-SERIAL_PORT = '/dev/ttyUSB0'
 BAUD_RATE = 9600
 
 lora = None
 sdr = None
 
 
+def find_lora():
+    ports = serial.tools.list_ports.comports()
+    for port in ports:
+        if "USB" in port.device:
+            try:
+                ser = serial.Serial(port.device, BAUD_RATE, timeout=0.3)
+                time.sleep(0.1)
+                ser.close()
+                print(f"LoRa bulundu: {port.device}")
+                return port.device
+            except:
+                pass
+    return None
+
+
 def init_lora():
     global lora
     while True:
-        try:
-            lora = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=0.1)
-            print("LoRa bağlantısı kuruldu.")
-            return
-        except Exception as e:
-            print(f"LoRa bağlanamadı: {e}, tekrar deneniyor...")
-            time.sleep(2)
+        port = find_lora()
+        if port:
+            try:
+                lora = serial.Serial(port, BAUD_RATE, timeout=0.1)
+                print(f"LoRa baglandi: {port}")
+                return
+            except Exception as e:
+                print(f"LoRa baglanamadi: {e}")
+        print("LoRa bulunamadi, tekrar deneniyor...")
+        time.sleep(2)
 
 
 def init_sdr():
@@ -34,10 +51,10 @@ def init_sdr():
             sdr.sample_rate = 2.4e6
             sdr.center_freq = 446.450e6
             sdr.gain = 5
-            print("SDR başlatıldı.")
+            print("SDR baslatildi.")
             return
         except Exception as e:
-            print(f"SDR başlatılamadı: {e}, tekrar deneniyor...")
+            print(f"SDR baslatilamadi: {e}")
             time.sleep(2)
 
 
@@ -57,16 +74,16 @@ while True:
         slot_end = slot_start + SLOT_LENGTH
 
         if slot_start <= elapsed < slot_end:
-            samples = sdr.read_samples(128*1024)  # biraz düşürdüm daha hızlı tepki için
+            samples = sdr.read_samples(128 * 1024)
             Psig = np.mean(np.abs(samples)**2)
-            db = 10 * np.log10(Psig + 1e-12)  # log(0) koruması
+            db = 10 * np.log10(Psig + 1e-12)
 
             msg = f"{seq_id},drone{NODE_ID}:{db:.2f}\n"
-
+            
             try:
                 lora.write(msg.encode())
             except:
-                print("LoRa yazma hatası. Yeniden bağlanılıyor...")
+                print("LoRa yazma hatası! Yeniden bağlan...")
                 init_lora()
 
             print(f"[drone{NODE_ID}] gönderildi: {msg.strip()}")
@@ -77,7 +94,7 @@ while True:
             time.sleep(0.05)
 
     except Exception as e:
-        print(f"HATA OLDU: {e} | SDR yeniden başlatılıyor...")
+        print(f"HATA: {e} | SDR yeniden başlatılıyor...")
         try:
             sdr.close()
         except:
